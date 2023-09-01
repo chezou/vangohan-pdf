@@ -1,7 +1,7 @@
 tmp
 results
 .venv
-*.md
 *.html
 *.png
 *.pdf
+vangohan*.md
