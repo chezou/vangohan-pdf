@@ -1,0 +1,6 @@
+*.html
+*.md
+*.pdf
+*.png
+.venv
+tmp
