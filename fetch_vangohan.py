@@ -101,9 +101,10 @@ class VangohanScraper:
 
         recipes = []
 
-        for url in urls[1:]:
+        for url in urls:
+            if "-Menu-" in url:
+                continue
             self.driver.get(url)
-            # ja_title = '//div[@role="table"]//span[@class="notion-enable-hover"]'
             content_path = '//div[@class="notion-page-content"]'
 
             content = WebDriverWait(self.driver, 20).until(
@@ -150,7 +151,7 @@ class VangohanScraper:
 
                 f.write("\n\n")
 
-            f.write("<img src='./menu.png' height='900'>\n")
+            f.write("<img src='./menu.png' height='700'>\n")
 
     def html2pdf2(self, input_fname: str, output_fname: str):
         path = os.path.abspath(input_fname)
