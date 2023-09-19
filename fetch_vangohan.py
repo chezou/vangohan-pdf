@@ -100,9 +100,10 @@ class VangohanScraper:
         urls = [article.get_attribute("href") for article in articles]
 
         recipes = []
+        IGNORE_URL_PATTERNS = ["-Menu-", "Welcome-to-VanGohan"]
 
         for url in urls:
-            if "-Menu-" in url:
+            if any(pat in url for pat in IGNORE_URL_PATTERNS):
                 continue
             self.driver.get(url)
             content_path = '//div[@class="notion-page-content"]'
