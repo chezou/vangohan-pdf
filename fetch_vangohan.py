@@ -128,20 +128,29 @@ class VangohanScraper:
                 rows = recipe.split("\n")
                 title_row = 1 if lang == "ja" else 0
                 f.write(f"## {rows[title_row]}\n")  # title
+                instruction_flag = False
                 for row in rows[2:]:
                     if row == ja_title1 or row == ja_title2:
                         en_flag = False
                         if lang == "ja":
-                            f.write("\n### ")
+                            if row == ja_title2:
+                                instruction_flag = True
+
+                            f.write("\n#### ")
                     elif row == en_title1 or row == en_title2:
                         en_flag = True
                         if lang == "en":
-                            f.write("\n### ")
+                            if row == en_title2:
+                                instruction_flag = True
+
+                            f.write("\n#### ")
                     else:
                         if not en_flag and lang == "ja":
-                            f.write("1. ")
+                            prefix = "1. " if instruction_flag else "- "
+                            f.write(prefix)
                         elif en_flag and lang == "en":
-                            f.write("1. ")
+                            prefix = "1. " if instruction_flag else "- "
+                            f.write(prefix)
 
                     if lang == "ja" and en_flag:
                         continue
@@ -152,7 +161,7 @@ class VangohanScraper:
 
                 f.write("\n\n")
 
-            f.write("<img src='./menu.png' height='700'>\n")
+            f.write("<img src='./menu.png' height='600'>\n")
 
     def html2pdf2(self, input_fname: str, output_fname: str):
         path = os.path.abspath(input_fname)
