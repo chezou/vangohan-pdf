@@ -1,8 +1,6 @@
 # Vangohan Recipe to PDF
 
-This script requires Chrome driver.
-
-After installing Chrome driver, run:
+If you execute locally, run:
 
 ```sh
 $ python3 -m venv .venv
