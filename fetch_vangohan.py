@@ -120,6 +120,7 @@ class VangohanScraper:
         en_title2 = "Instructions"
         ja_title1 = "ご自宅でご用意いただくもの"
         ja_title2 = "インストラクション"
+        tips = "Tips"
 
         en_flag = False
 
@@ -135,14 +136,14 @@ class VangohanScraper:
                     elif row == ja_title1 or row.startswith(ja_title2):
                         en_flag = False
                         if lang == "ja":
-                            if row == ja_title2:
+                            if row.startswith(ja_title2):
                                 instruction_flag = True
 
                             f.write("\n#### ")
                     elif row == en_title1 or row.startswith(en_title2):
                         en_flag = True
                         if lang == "en":
-                            if row == en_title2:
+                            if row.startswith(en_title2):
                                 instruction_flag = True
 
                             f.write("\n#### ")
