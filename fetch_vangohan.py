@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 import pathlib
 from io import BytesIO
@@ -44,6 +45,10 @@ TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logging.getLogger("WDM").setLevel(logging.WARNING)
+
 
 class VangohanScraper:
     VANGOHAN_URL = "https://light-nyala-71c.notion.site/VanGohan-Instructions-0290b31c1baf4eeab79613508adeba38"
@@ -64,6 +69,7 @@ class VangohanScraper:
         self.driver.quit()
 
     def save_menu_image(self):
+        logger.info("fetching menu image")
         self.driver.get(self.VANGOHAN_URL)
         menu = WebDriverWait(self.driver, 20).until(
             EC.visibility_of_element_located(
@@ -87,6 +93,7 @@ class VangohanScraper:
         i.save("menu.png")
 
     def fetch_recipes(self) -> List[str]:
+        logger.info("fetching recipes")
         self.driver.get(self.VANGOHAN_URL)
         articles = WebDriverWait(self.driver, 20).until(
             EC.visibility_of_all_elements_located(
@@ -116,6 +123,8 @@ class VangohanScraper:
         return recipes
 
     def save_recipes(self, recipes: List[str], fname: str, lang: str = "ja"):
+        logger.info("parsing html")
+
         en_title1 = "Things you need to prepare"
         en_title2 = "Instructions"
         ja_title1 = "ご自宅でご用意いただくもの"
@@ -170,6 +179,8 @@ class VangohanScraper:
             f.write("<img src='./menu.png' height='600'>\n")
 
     def html2pdf2(self, input_fname: str, output_fname: str):
+        logger.info("Saving PDF")
+
         path = os.path.abspath(input_fname)
         url = pathlib.Path(path).as_uri()
 
@@ -215,18 +226,13 @@ def md2html(input_fname: str, output_fname: str):
 
 if __name__ == "__main__":
     vs = VangohanScraper()
-    print("fetching menu image")
     vs.save_menu_image()
-
-    print("fetching recipes")
     recipes = vs.fetch_recipes()
 
-    print("parsing html")
     vs.save_recipes(recipes, "vangohan.md", lang="ja")
     md2html("vangohan.md", "vangohan.html")
     pathlib.Path("results").mkdir(parents=True, exist_ok=True)
 
-    print("Saving PDF")
     vs.html2pdf2("vangohan.html", pathlib.Path("results", "vangohan.pdf"))
     vs.save_recipes(recipes, "vangohan-en.md", lang="en")
     md2html("vangohan-en.md", "vangohan-en.html")
