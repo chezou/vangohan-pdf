@@ -5,6 +5,7 @@ import pathlib
 from io import BytesIO
 from typing import List
 
+import chromedriver_autoinstaller
 import httpx
 import markdown
 from PIL import Image
@@ -14,7 +15,6 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
 # This template is based on https://gist.github.com/Fedik/674f4148439698a6681032b3bec370b3
 TEMPLATE = """<!DOCTYPE html>
@@ -54,16 +54,15 @@ class VangohanScraper:
     VANGOHAN_URL = "https://light-nyala-71c.notion.site/VanGohan-Instructions-0290b31c1baf4eeab79613508adeba38"
 
     def __init__(self):
-        chrome_options = Options()
+        chromedriver_autoinstaller.install()
+
+        chrome_options = webdriver.ChromeOptions()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
 
-        self.driver = webdriver.Chrome(
-            service=ChromeService(ChromeDriverManager().install()),
-            options=chrome_options,
-        )
+        self.driver = webdriver.Chrome(options=chrome_options,)
 
     def __del__(self):
         self.driver.quit()

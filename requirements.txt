@@ -1,5 +1,5 @@
 httpx
 pillow
-webdriver-manager
 selenium
 markdown
+chromedriver-autoinstaller
