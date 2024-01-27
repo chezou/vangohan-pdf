@@ -133,20 +133,23 @@ class VangohanScraper:
                 for row in rows[2:]:
                     if not row:
                         continue
-                    elif row == ja_title1 or row.startswith(ja_title2):
+                    elif row == ja_title1 or (is_title2 := row.startswith(ja_title2)):
                         en_flag = False
                         if lang == "ja":
-                            if row.startswith(ja_title2):
+                            if is_title2:
                                 instruction_flag = True
 
                             f.write("\n#### ")
-                    elif row == en_title1 or row.startswith(en_title2):
+                    elif row == en_title1 or (is_title2 := row.startswith(en_title2)):
                         en_flag = True
                         if lang == "en":
-                            if row.startswith(en_title2):
+                            if is_title2:
                                 instruction_flag = True
 
                             f.write("\n#### ")
+                    elif row == tips:
+                        instruction_flag = False
+                        f.write("\n#### ")
                     else:
                         if not en_flag and lang == "ja":
                             prefix = "1. " if instruction_flag else "- "
