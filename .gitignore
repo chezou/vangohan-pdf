@@ -1,7 +1,5 @@
 tmp
-results
 .venv
 *.html
 *.png
-*.pdf
 vangohan*.md
