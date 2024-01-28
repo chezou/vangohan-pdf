@@ -29,6 +29,7 @@ TEMPLATE = """<!DOCTYPE html>
     <meta name="referrer" content="origin" />
     <meta name="referrer" content="no-referrer-when-downgrade" />
     <meta name="referrer" content="origin-when-cross-origin" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vangohan Recipe</title>
     <link href="bootstrap.min.css" rel="stylesheet">
     <style>
@@ -183,7 +184,7 @@ class VangohanScraper:
 
                 f.write("\n\n")
 
-            f.write("<img src='./menu.png' height='600'>\n")
+            f.write("<img class='img-fluid' src='./menu.png'>\n")
 
     def html2pdf2(self, input_fname: str, output_fname: str):
         logger.info("Saving PDF")
