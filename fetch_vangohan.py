@@ -29,7 +29,7 @@ TEMPLATE = """<!DOCTYPE html>
     <meta name="referrer" content="origin" />
     <meta name="referrer" content="no-referrer-when-downgrade" />
     <meta name="referrer" content="origin-when-cross-origin" />
-    <title>Page Title</title>
+    <title>Vangohan Recipe</title>
     <link href="bootstrap.min.css" rel="stylesheet">
     <style>
         body {
