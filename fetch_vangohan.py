@@ -237,13 +237,13 @@ def md2html(input_fname: str, output_fname: str):
 @click.option("-o", "--output", default="results", help="output folder name")
 def cli(lang, output):
     vs = VangohanScraper()
+    pathlib.Path(output).mkdir(parents=True, exist_ok=True)
     vs.save_menu_image(output)
     recipes = vs.fetch_recipes()
 
     base_name = "vangohan" + ("_en" if lang == "en" else "")
 
     vs.save_recipes(recipes, f"{base_name}.md", lang=lang)
-    pathlib.Path(output).mkdir(parents=True, exist_ok=True)
     shutil.copy("bootstrap.min.css", output)
 
     md2html(f"{base_name}.md", pathlib.Path(output, f"{base_name}.html"))
