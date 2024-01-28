@@ -3,3 +3,4 @@ pillow
 selenium
 markdown
 chromedriver-autoinstaller
+click

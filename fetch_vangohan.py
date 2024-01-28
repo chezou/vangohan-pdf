@@ -1,11 +1,14 @@
 import base64
+import datetime
 import logging
 import os
+import shutil
 import pathlib
 from io import BytesIO
 from typing import List
 
 import chromedriver_autoinstaller
+import click
 import httpx
 import markdown
 from PIL import Image
@@ -38,8 +41,10 @@ TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-<div class="container mt-3">
+<div class="container my-5">
+<div class="col-lg-8 px-0 mx-auto">
 {{content}}
+</div>
 </div>
 </body>
 </html>
@@ -67,7 +72,7 @@ class VangohanScraper:
     def __del__(self):
         self.driver.quit()
 
-    def save_menu_image(self):
+    def save_menu_image(self, output_dir: str):
         logger.info("fetching menu image")
         self.driver.get(self.VANGOHAN_URL)
         menu = WebDriverWait(self.driver, 20).until(
@@ -89,7 +94,7 @@ class VangohanScraper:
         src = img.get_attribute("src")
         r = httpx.get(src)
         i = Image.open(BytesIO(r.content))
-        i.save("menu.png")
+        i.save(pathlib.Path(output_dir, "menu.png"))
 
     def fetch_recipes(self) -> List[str]:
         logger.info("fetching recipes")
@@ -133,6 +138,9 @@ class VangohanScraper:
         en_flag = False
 
         with open(fname, "w") as f:
+            today = datetime.date.today()
+            day_of_week = today.weekday()
+            f.write(f"## VanGohan Recipe: Week of {today - datetime.timedelta(days=day_of_week)}\n\n")
             for recipe in recipes:
                 rows = recipe.split("\n")
                 title_row = 1 if lang == "ja" else 0
@@ -190,6 +198,7 @@ class VangohanScraper:
             "printBackground": True,
             "preferCSSPageSize": True,
             "pageSize": "Letter",
+            "scale": 0.9,
         }
         result = self._send_devtools(self.driver, "Page.printToPDF", print_options)
 
@@ -223,16 +232,23 @@ def md2html(input_fname: str, output_fname: str):
             fw.write(doc)
 
 
-if __name__ == "__main__":
+@click.command()
+@click.option("-l", "--lang", default="ja", help="language (ja or en)")
+@click.option("-o", "--output", default="results", help="output folder name")
+def cli(lang, output):
     vs = VangohanScraper()
-    vs.save_menu_image()
+    vs.save_menu_image(output)
     recipes = vs.fetch_recipes()
 
-    vs.save_recipes(recipes, "vangohan.md", lang="ja")
-    md2html("vangohan.md", "vangohan.html")
-    pathlib.Path("results").mkdir(parents=True, exist_ok=True)
+    base_name = "vangohan" + ("_en" if lang == "en" else "")
 
-    vs.html2pdf2("vangohan.html", pathlib.Path("results", "vangohan.pdf"))
-    vs.save_recipes(recipes, "vangohan-en.md", lang="en")
-    md2html("vangohan-en.md", "vangohan-en.html")
-    vs.html2pdf2("vangohan-en.html", pathlib.Path("results", "vangohan_en.pdf"))
+    vs.save_recipes(recipes, f"{base_name}.md", lang=lang)
+    pathlib.Path(output).mkdir(parents=True, exist_ok=True)
+    shutil.copy("bootstrap.min.css", output)
+
+    md2html(f"{base_name}.md", pathlib.Path(output, f"{base_name}.html"))
+
+    vs.html2pdf2(pathlib.Path(output, f"{base_name}.html"), pathlib.Path(output, f"{base_name}.pdf"))
+
+if __name__ == "__main__":
+    cli()
