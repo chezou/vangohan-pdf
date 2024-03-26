@@ -18,6 +18,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
 
 # This template is based on https://gist.github.com/Fedik/674f4148439698a6681032b3bec370b3
 TEMPLATE = """<!DOCTYPE html>
@@ -76,26 +77,30 @@ class VangohanScraper:
     def save_menu_image(self, output_dir: str):
         logger.info("fetching menu image")
         self.driver.get(self.VANGOHAN_URL)
-        menu = WebDriverWait(self.driver, 20).until(
-            EC.visibility_of_element_located(
-                (
-                    By.XPATH,
-                    '//div[contains(text(), " Menu")]/ancestor::a',
+        try:
+            menu = WebDriverWait(self.driver, 20).until(
+                EC.visibility_of_element_located(
+                    (
+                        By.XPATH,
+                        '//div[contains(text(), " Menu")]/ancestor::a',
+                    )
                 )
             )
-        )
 
-        menu.click()  # open menu page
+            menu.click()  # open menu page
 
-        img = WebDriverWait(self.driver, 20).until(
-            EC.visibility_of_element_located(
-                (By.XPATH, '//div[@class="notion-cursor-default"]//img')
+            img = WebDriverWait(self.driver, 20).until(
+                EC.visibility_of_element_located(
+                    (By.XPATH, '//div[@class="notion-cursor-default"]//img')
+                )
             )
-        )
-        src = img.get_attribute("src")
-        r = httpx.get(src)
-        i = Image.open(BytesIO(r.content))
-        i.save(pathlib.Path(output_dir, "menu.png"))
+            src = img.get_attribute("src")
+            r = httpx.get(src)
+            i = Image.open(BytesIO(r.content))
+            i.save(pathlib.Path(output_dir, "menu.png"))
+        except TimeoutException as e:
+            logger.error(f"TimeoutException to fetch menu: {e}")
+
 
     def fetch_recipes(self) -> List[str]:
         logger.info("fetching recipes")
