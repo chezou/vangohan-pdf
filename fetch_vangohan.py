@@ -74,7 +74,10 @@ class VangohanScraper:
     def __del__(self):
         self.driver.quit()
 
-    def save_menu_image(self, output_dir: str):
+    def save_menu_image(self, output_dir: str) -> bool:
+        logger.info("Deleting an existing menu image")
+        menu_img = pathlib.Path(output_dir, "menu.png")
+        menu_img.unlink(missing_ok=True)
         logger.info("fetching menu image")
         self.driver.get(self.VANGOHAN_URL)
         try:
@@ -97,9 +100,9 @@ class VangohanScraper:
             src = img.get_attribute("src")
             r = httpx.get(src)
             i = Image.open(BytesIO(r.content))
-            i.save(pathlib.Path(output_dir, "menu.png"))
+            i.save(menu_img)
         except TimeoutException as e:
-            logger.error(f"TimeoutException to fetch menu: {e}")
+            logger.error("TimeoutException to fetch menu image")
 
 
     def fetch_recipes(self) -> List[str]:
@@ -189,7 +192,9 @@ class VangohanScraper:
 
                 f.write("\n\n")
 
-            f.write("<img class='img-fluid' src='./menu.png'>\n")
+            image_path = pathlib.Path("./menu.png")
+            if image_path.exists():
+                f.write(f"<img class='img-fluid' src='{str(image_path)}'>\n")
 
     def html2pdf2(self, input_fname: str, output_fname: str):
         logger.info("Saving PDF")
