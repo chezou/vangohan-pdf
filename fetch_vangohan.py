@@ -101,8 +101,10 @@ class VangohanScraper:
             r = httpx.get(src)
             i = Image.open(BytesIO(r.content))
             i.save(menu_img)
+            return True
         except TimeoutException as e:
             logger.error("TimeoutException to fetch menu image")
+            return False
 
 
     def fetch_recipes(self) -> List[str]:
@@ -135,7 +137,7 @@ class VangohanScraper:
 
         return recipes
 
-    def save_recipes(self, recipes: List[str], fname: str, lang: str = "ja"):
+    def save_recipes(self, recipes: List[str], fname: str, image_exist: bool = True, lang: str = "ja"):
         logger.info("parsing html")
 
         en_title1 = "Things you need to prepare"
@@ -192,9 +194,8 @@ class VangohanScraper:
 
                 f.write("\n\n")
 
-            image_path = pathlib.Path("./menu.png")
-            if image_path.exists():
-                f.write(f"<img class='img-fluid' src='{str(image_path)}'>\n")
+            if image_exist:
+                f.write("<img class='img-fluid' src='./menu.png'>\n")
 
     def html2pdf2(self, input_fname: str, output_fname: str):
         logger.info("Saving PDF")
@@ -249,12 +250,12 @@ def md2html(input_fname: str, output_fname: str):
 def cli(lang, output):
     vs = VangohanScraper()
     pathlib.Path(output).mkdir(parents=True, exist_ok=True)
-    vs.save_menu_image(output)
+    image_exist = vs.save_menu_image(output)
     recipes = vs.fetch_recipes()
 
     base_name = "vangohan" + ("_en" if lang == "en" else "")
 
-    vs.save_recipes(recipes, f"{base_name}.md", lang=lang)
+    vs.save_recipes(recipes, f"{base_name}.md", image_exist=image_exist, lang=lang)
     shutil.copy("bootstrap.min.css", output)
 
     md2html(f"{base_name}.md", pathlib.Path(output, f"{base_name}.html"))
