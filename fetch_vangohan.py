@@ -122,7 +122,7 @@ class VangohanScraper:
         urls = [article.get_attribute("href") for article in articles]
 
         recipes = []
-        IGNORE_URL_PATTERNS = ["-Menu-", "Welcome-to-VanGohan"]
+        IGNORE_URL_PATTERNS = ["-Menu-", "Welcome-to-VanGohan", "Printable-instructions-"]
 
         for url in urls:
             if any(pat in url for pat in IGNORE_URL_PATTERNS):
