@@ -13,8 +13,6 @@ import httpx
 import markdown
 from PIL import Image
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -69,10 +67,21 @@ class VangohanScraper:
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
 
-        self.driver = webdriver.Chrome(options=chrome_options,)
+        self.driver = webdriver.Chrome(
+            options=chrome_options,
+        )
 
     def __del__(self):
         self.driver.quit()
+
+    @classmethod
+    def tuesday_string(cls, hyphenated: bool = False) -> str:
+        today = datetime.date.today()
+        day_of_week = today.weekday()
+        tuesday = (
+            today - datetime.timedelta(days=day_of_week) + datetime.timedelta(days=1)
+        )
+        return tuesday.strftime(f"%B{'-' if hyphenated else ' '}%-d")
 
     def save_menu_image(self, output_dir: str) -> bool:
         logger.info("Deleting an existing menu image")
@@ -85,7 +94,7 @@ class VangohanScraper:
                 EC.visibility_of_element_located(
                     (
                         By.XPATH,
-                        '//div[contains(text(), " Menu")]/ancestor::a',
+                        f'//div[contains(text(), "{VangohanScraper.tuesday_string()}")]/ancestor::a',
                     )
                 )
             )
@@ -102,10 +111,9 @@ class VangohanScraper:
             i = Image.open(BytesIO(r.content))
             i.save(menu_img)
             return True
-        except TimeoutException as e:
+        except TimeoutException:
             logger.error("TimeoutException to fetch menu image")
             return False
-
 
     def fetch_recipes(self) -> List[str]:
         logger.info("fetching recipes")
@@ -122,7 +130,11 @@ class VangohanScraper:
         urls = [article.get_attribute("href") for article in articles]
 
         recipes = []
-        IGNORE_URL_PATTERNS = ["-Menu-", "Welcome-to-VanGohan", "Printable-instructions-"]
+        IGNORE_URL_PATTERNS = [
+            "Welcome-to-VanGohan",
+            "Printable-instructions-",
+            VangohanScraper.tuesday_string(hyphenated=True),
+        ]
 
         for url in urls:
             if any(pat in url for pat in IGNORE_URL_PATTERNS):
@@ -137,7 +149,9 @@ class VangohanScraper:
 
         return recipes
 
-    def save_recipes(self, recipes: List[str], fname: str, image_exist: bool = True, lang: str = "ja"):
+    def save_recipes(
+        self, recipes: List[str], fname: str, image_exist: bool = True, lang: str = "ja"
+    ):
         logger.info("parsing html")
 
         en_title1 = "Things you need to prepare"
@@ -151,7 +165,9 @@ class VangohanScraper:
         with open(fname, "w") as f:
             today = datetime.date.today()
             day_of_week = today.weekday()
-            f.write(f"## VanGohan Recipe: Week of {today - datetime.timedelta(days=day_of_week)}\n\n")
+            f.write(
+                f"## VanGohan Recipe: Week of {today - datetime.timedelta(days=day_of_week)}\n\n"
+            )
             for recipe in recipes:
                 rows = recipe.split("\n")
                 title_row = 1 if lang == "ja" else 0
@@ -260,7 +276,11 @@ def cli(lang, output):
 
     md2html(f"{base_name}.md", pathlib.Path(output, f"{base_name}.html"))
 
-    vs.html2pdf2(pathlib.Path(output, f"{base_name}.html"), pathlib.Path(output, f"{base_name}.pdf"))
+    vs.html2pdf2(
+        pathlib.Path(output, f"{base_name}.html"),
+        pathlib.Path(output, f"{base_name}.pdf"),
+    )
+
 
 if __name__ == "__main__":
     cli()
