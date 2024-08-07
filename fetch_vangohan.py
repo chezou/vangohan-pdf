@@ -75,13 +75,15 @@ class VangohanScraper:
         self.driver.quit()
 
     @classmethod
-    def tuesday_string(cls, hyphenated: bool = False) -> str:
+    def tuesday_string(cls, hyphenated: bool = False, abbr: bool = False) -> str:
         today = datetime.date.today()
         day_of_week = today.weekday()
         tuesday = (
             today - datetime.timedelta(days=day_of_week) + datetime.timedelta(days=1)
         )
-        return tuesday.strftime(f"%B{'-' if hyphenated else ' '}%-d")
+        return tuesday.strftime(
+            f"{'%b' if abbr else '%B'}{'-' if hyphenated else ' '}%-d"
+        )
 
     def save_menu_image(self, output_dir: str) -> bool:
         logger.info("Deleting an existing menu image")
@@ -89,12 +91,23 @@ class VangohanScraper:
         menu_img.unlink(missing_ok=True)
         logger.info("fetching menu image")
         self.driver.get(self.VANGOHAN_URL)
+        if self._fetch_menu_image(" Menu", menu_img):
+            return True
+        elif self._fetch_menu_image(VangohanScraper.tuesday_string(abbr=False), menu_img):
+            return True
+        elif self._fetch_menu_image(VangohanScraper.tuesday_string(abbr=True), menu_img):
+            return True
+        else:
+            return False
+
+    def _fetch_menu_image(self, target_str: str, menu_img: pathlib.Path) -> bool:
+        logger.info(f"{target_str=}")
         try:
             menu = WebDriverWait(self.driver, 20).until(
                 EC.visibility_of_element_located(
                     (
                         By.XPATH,
-                        f'//div[contains(text(), "{VangohanScraper.tuesday_string()}")]/ancestor::a',
+                        f'//div[contains(text(), "{target_str}")]/ancestor::a',
                     )
                 )
             )
@@ -110,9 +123,10 @@ class VangohanScraper:
             r = httpx.get(src)
             i = Image.open(BytesIO(r.content))
             i.save(menu_img)
+
             return True
         except TimeoutException:
-            logger.error("TimeoutException to fetch menu image")
+            logger.error(f"TimeoutException to fetch menu image for {target_str}")
             return False
 
     def fetch_recipes(self) -> List[str]:
@@ -134,11 +148,14 @@ class VangohanScraper:
             "Welcome-to-VanGohan",
             "Printable-instructions-",
             VangohanScraper.tuesday_string(hyphenated=True),
+            VangohanScraper.tuesday_string(hyphenated=True, abbr=True),
+            "-Menu-",
         ]
 
         for url in urls:
             if any(pat in url for pat in IGNORE_URL_PATTERNS):
                 continue
+            logger.info(url)
             self.driver.get(url)
             content_path = '//div[@class="notion-page-content"]'
 
