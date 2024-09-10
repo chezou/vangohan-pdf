@@ -120,7 +120,7 @@ class VangohanScraper:
                 )
             )
             src = img.get_attribute("src")
-            r = httpx.get(src)
+            r = httpx.get(src, follow_redirects=True)
             i = Image.open(BytesIO(r.content))
             i.save(menu_img)
 
