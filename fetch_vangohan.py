@@ -136,12 +136,13 @@ class VangohanScraper:
             EC.visibility_of_all_elements_located(
                 (
                     By.XPATH,
-                    '//div[@class="notion-selectable notion-page-block notion-collection-item"]/a',
+                    '//div[contains(@class, "notion-collection-item")]/a',
                 )
             )
         )
 
         urls = [article.get_attribute("href") for article in articles]
+        logger.info(urls)
 
         recipes = []
         IGNORE_URL_PATTERNS = [
