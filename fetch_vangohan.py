@@ -113,6 +113,7 @@ class VangohanScraper:
             )
 
             menu.click()  # open menu page
+            logger.debug("clicked")
 
             img = WebDriverWait(self.driver, 20).until(
                 EC.visibility_of_element_located(
@@ -188,6 +189,7 @@ class VangohanScraper:
             )
             for recipe in recipes:
                 rows = recipe.split("\n")
+                logger.debug(rows)
                 title_row = 1 if lang == "ja" else 0
                 f.write(f"## {rows[title_row]}\n")  # title
                 instruction_flag = False
