@@ -190,6 +190,10 @@ class VangohanScraper:
             for recipe in recipes:
                 rows = recipe.split("\n")
                 logger.debug(rows)
+                if not rows:
+                    logger.warning("Empty recipe")
+                    continue
+
                 title_row = 1 if lang == "ja" else 0
                 f.write(f"## {rows[title_row]}\n")  # title
                 instruction_flag = False
