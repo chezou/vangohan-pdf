@@ -190,7 +190,7 @@ class VangohanScraper:
             for recipe in recipes:
                 rows = recipe.split("\n")
                 logger.debug(rows)
-                if not rows:
+                if not rows or len(rows) < 2:
                     logger.warning("Empty recipe")
                     continue
 
