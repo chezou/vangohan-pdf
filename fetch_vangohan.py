@@ -115,7 +115,7 @@ class VangohanScraper:
             menu.click()  # open menu page
             logger.debug("clicked")
 
-            img = WebDriverWait(self.driver, 20).until(
+            img = WebDriverWait(self.driver, 40).until(
                 EC.visibility_of_element_located(
                     (By.XPATH, '//div[@class="notion-cursor-default"]//img')
                 )
@@ -133,7 +133,7 @@ class VangohanScraper:
     def fetch_recipes(self) -> List[str]:
         logger.info("fetching recipes")
         self.driver.get(self.VANGOHAN_URL)
-        articles = WebDriverWait(self.driver, 20).until(
+        articles = WebDriverWait(self.driver, 30).until(
             EC.visibility_of_all_elements_located(
                 (
                     By.XPATH,
@@ -159,9 +159,16 @@ class VangohanScraper:
                 continue
             logger.info(url)
             self.driver.get(url)
+            WebDriverWait(self.driver, 40).until(
+                EC.text_to_be_present_in_element(
+                    (
+                        By.XPATH, '//span[@class="notranslate"]'
+                    ),
+                    "VanGohan Instructions Upcoming"
+                )
+            )
             content_path = '//div[@class="notion-page-content"]'
-
-            content = WebDriverWait(self.driver, 20).until(
+            content = WebDriverWait(self.driver, 40).until(
                 EC.visibility_of_element_located((By.XPATH, content_path))
             )
             recipes.append(content.get_attribute("innerText"))
