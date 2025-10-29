@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import pathlib
+import time
 from io import BytesIO
 from typing import List
 
@@ -16,7 +17,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 
 # This template is based on https://gist.github.com/Fedik/674f4148439698a6681032b3bec370b3
 TEMPLATE = """<!DOCTYPE html>
@@ -66,13 +67,29 @@ class VangohanScraper:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-plugins")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+        chrome_options.add_argument("--disable-renderer-backgrounding")
+        chrome_options.add_argument("--max_old_space_size=4096")
+        chrome_options.add_argument("--memory-pressure-off")
+
+        chrome_options.add_argument("--disable-crash-reporter")
+        chrome_options.add_argument("--disable-in-process-stack-traces")
+        chrome_options.add_argument("--disable-logging")
+        chrome_options.add_argument("--disable-background-media")
 
         self.driver = webdriver.Chrome(
             options=chrome_options,
         )
 
     def __del__(self):
-        self.driver.quit()
+        try:
+            self.driver.quit()
+        except Exception:
+            pass
 
     @classmethod
     def tuesday_string(cls, hyphenated: bool = False, abbr: bool = False) -> str:
@@ -93,9 +110,13 @@ class VangohanScraper:
         self.driver.get(self.VANGOHAN_URL)
         if self._fetch_menu_image(" Menu", menu_img):
             return True
-        elif self._fetch_menu_image(VangohanScraper.tuesday_string(abbr=False), menu_img):
+        elif self._fetch_menu_image(
+            VangohanScraper.tuesday_string(abbr=False), menu_img
+        ):
             return True
-        elif self._fetch_menu_image(VangohanScraper.tuesday_string(abbr=True), menu_img):
+        elif self._fetch_menu_image(
+            VangohanScraper.tuesday_string(abbr=True), menu_img
+        ):
             return True
         else:
             return False
@@ -131,49 +152,113 @@ class VangohanScraper:
             return False
 
     def fetch_recipes(self) -> List[str]:
-        logger.info("fetching recipes")
-        self.driver.get(self.VANGOHAN_URL)
-        articles = WebDriverWait(self.driver, 30).until(
-            EC.visibility_of_all_elements_located(
-                (
-                    By.XPATH,
-                    '//div[contains(@class, "notion-collection-item")]/a',
-                )
-            )
-        )
+        try:
+            logger.info("fetching recipes")
 
-        urls = [article.get_attribute("href") for article in articles]
-        logger.info(urls)
-
-        recipes = []
-        IGNORE_URL_PATTERNS = [
-            "Welcome-to-VanGohan",
-            "Printable-instructions-",
-            VangohanScraper.tuesday_string(hyphenated=True),
-            VangohanScraper.tuesday_string(hyphenated=True, abbr=True),
-            "-Menu-",
-        ]
-
-        for url in urls:
-            if any(pat in url for pat in IGNORE_URL_PATTERNS):
-                continue
-            logger.info(url)
-            self.driver.get(url)
-            WebDriverWait(self.driver, 40).until(
-                EC.text_to_be_present_in_element(
+            self.driver.get(self.VANGOHAN_URL)
+            articles = WebDriverWait(self.driver, 30).until(
+                EC.visibility_of_all_elements_located(
                     (
-                        By.XPATH, '//span[@class="notranslate"]'
-                    ),
-                    "VanGohan Instructions Upcoming"
+                        By.XPATH,
+                        '//div[contains(@class, "notion-collection-item")]/a',
+                    )
                 )
             )
-            content_path = '//div[@class="notion-page-content"]'
-            content = WebDriverWait(self.driver, 40).until(
-                EC.visibility_of_element_located((By.XPATH, content_path))
-            )
-            recipes.append(content.get_attribute("innerText"))
 
-        return recipes
+            urls = [article.get_attribute("href") for article in articles]
+            logger.info(urls)
+
+            recipes = []
+            IGNORE_URL_PATTERNS = [
+                "Welcome-to-VanGohan",
+                "Printable-instructions-",
+                VangohanScraper.tuesday_string(hyphenated=True),
+                VangohanScraper.tuesday_string(hyphenated=True, abbr=True),
+                "-Menu-",
+            ]
+
+            for url in urls:
+                if any(pat in url for pat in IGNORE_URL_PATTERNS):
+                    continue
+
+                recipe_content = self._fetch_single_recipe(url, max_retries=3)
+                if recipe_content:
+                    recipes.append(recipe_content)
+
+            return recipes
+
+        except WebDriverException as e:
+            logger.error(f"WebDriverException while fetching recipe list: {e}")
+            logger.info("Reinitializing driver and retrying once...")
+            self._reinitialize_driver()
+            time.sleep(2)
+
+            try:
+                self.driver.get(self.VANGOHAN_URL)
+                articles = WebDriverWait(self.driver, 30).until(
+                    EC.visibility_of_all_elements_located(
+                        (
+                            By.XPATH,
+                            '//div[contains(@class, "notion-collection-item")]/a',
+                        )
+                    )
+                )
+                urls = [article.get_attribute("href") for article in articles]
+                logger.info(f"Retry successful, found {len(urls)} URLs")
+
+                recipes = []
+                IGNORE_URL_PATTERNS = [
+                    "Welcome-to-VanGohan",
+                    "Printable-instructions-",
+                    VangohanScraper.tuesday_string(hyphenated=True),
+                    VangohanScraper.tuesday_string(hyphenated=True, abbr=True),
+                    "-Menu-",
+                ]
+
+                for url in urls:
+                    if any(pat in url for pat in IGNORE_URL_PATTERNS):
+                        continue
+
+                    recipe_content = self._fetch_single_recipe(url, max_retries=3)
+                    if recipe_content:
+                        recipes.append(recipe_content)
+
+                return recipes
+
+            except Exception as retry_e:
+                logger.error(f"Retry also failed: {retry_e}")
+                raise
+
+        except Exception as e:
+            logger.error(f"Unexpected error while fetching recipes: {e}")
+            raise
+
+    def _fetch_single_recipe(self, url: str, max_retries: int = 2) -> str:
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Fetching {url} (attempt {attempt + 1}/{max_retries})")
+                self.driver.get(url)
+                WebDriverWait(self.driver, 40).until(
+                    EC.text_to_be_present_in_element(
+                        (By.XPATH, '//span[@class="notranslate"]'),
+                        "VanGohan Instructions Upcoming",
+                    )
+                )
+                content_path = '//div[@class="notion-page-content"]'
+                content = WebDriverWait(self.driver, 40).until(
+                    EC.visibility_of_element_located((By.XPATH, content_path))
+                )
+                return content.get_attribute("innerText")
+
+            except (WebDriverException, TimeoutException) as e:
+                logger.warning(f"Error fetching {url} on attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    logger.error(f"Failed to fetch {url} after {max_retries} attempts")
+                    return ""
+
+        return ""
 
     def save_recipes(
         self, recipes: List[str], fname: str, image_exist: bool = True, lang: str = "ja"
@@ -251,6 +336,12 @@ class VangohanScraper:
         url = pathlib.Path(path).as_uri()
 
         self.driver.get(url)
+
+        WebDriverWait(self.driver, 10).until(
+            lambda driver: driver.execute_script("return document.readyState")
+            == "complete"
+        )
+
         print_options = {
             "landscape": False,
             "displayHeaderFooter": False,
@@ -259,25 +350,25 @@ class VangohanScraper:
             "pageSize": "Letter",
             "scale": 0.9,
         }
-        result = self._send_devtools(self.driver, "Page.printToPDF", print_options)
+        result = self._send_devtools("Page.printToPDF", print_options)
 
         with open(output_fname, "wb") as f:
             f.write(base64.b64decode(result["data"]))
 
+        logger.info(f"PDF saved successfully: {output_fname}")
+
     # From https://gist.github.com/bloodwithmilk25/3e05719829ae875319485bc52fcd294e#file-pdf_generator_simple_version-py
-    @staticmethod
-    def _send_devtools(driver, cmd, params):
+    def _send_devtools(self, cmd, params={}):
         """
         Works only with chromedriver.
-        Method uses cromedriver's api to pass various commands to it.
+        Method uses selenium's execute_cdp_cmd to send Chrome DevTools commands.
         """
-        import json
-
-        resource = f"/session/{driver.session_id}/chromium/send_command_and_get_result"
-        url = driver.command_executor._url + resource
-        body = json.dumps({"cmd": cmd, "params": params})
-        response = driver.command_executor._request("POST", url, body)
-        return response.get("value")
+        try:
+            # Use Selenium 4's built-in CDP command method
+            return self.driver.execute_cdp_cmd(cmd, params)
+        except AttributeError:
+            # Fallback for older selenium versions
+            return self.driver.execute("send_command", {"cmd": cmd, "params": params})
 
 
 def md2html(input_fname: str, output_fname: str):
