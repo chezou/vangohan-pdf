@@ -1,5 +1,11 @@
 # Vangohan Recipe to PDF
 
+Install uv first, and then run:
+
+```sh
+./fetch_vangohan.py
+```
+
 If you execute locally, run:
 
 ```sh
