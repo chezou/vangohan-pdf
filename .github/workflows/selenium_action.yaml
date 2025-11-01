@@ -1,5 +1,8 @@
 name: Run Selenium On GitHub Action
 on:
+  pull_request:
+    branches:
+      - main
   schedule:
     - cron: '0 18 * * 2,3'
   workflow_dispatch:
@@ -34,6 +37,7 @@ jobs:
           ./fetch_vangohan.py -o docs -l en
 
       - name: Commit and Push The Results From Python Selenium Action
+        if: github.ref == 'refs/heads/main'
         run: |
          git config --global user.name "github-actions[bot]"
          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
