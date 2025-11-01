@@ -1,3 +1,18 @@
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "httpx",
+#   "pillow",
+#   "selenium",
+#   "chromedriver-autoinstaller",
+#   "click",
+#   "markdown",
+# ]
+# ///
+
+
 import base64
 import datetime
 import logging
