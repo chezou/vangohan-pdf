@@ -10,6 +10,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -31,10 +32,21 @@ jobs:
         run: |
           sudo apt-get install fonts-ipafont fonts-ipaexfont
 
-      - name: Running the Python script
-        run: |
-          ./fetch_vangohan.py -o docs
-          ./fetch_vangohan.py -o docs -l en
+      - name: Running the Python script (Japanese)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: ./fetch_vangohan.py -o docs
+
+      - name: Running the Python script (English)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: ./fetch_vangohan.py -o docs -l en
 
       - name: Commit and Push The Results From Python Selenium Action
         if: github.ref == 'refs/heads/main'
