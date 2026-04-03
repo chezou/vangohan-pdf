@@ -106,6 +106,16 @@ class VangohanScraper:
         except Exception:
             pass
 
+    def _reinitialize_driver(self):
+        """Quit the current driver and create a new one."""
+        logger.info("Reinitializing Chrome driver")
+        try:
+            self.driver.quit()
+        except Exception:
+            pass
+        time.sleep(2)
+        self.__init__()
+
     @classmethod
     def tuesday_string(cls, hyphenated: bool = False, abbr: bool = False) -> str:
         today = datetime.date.today()
@@ -117,24 +127,34 @@ class VangohanScraper:
             f"{'%b' if abbr else '%B'}{'-' if hyphenated else ' '}%-d"
         )
 
-    def save_menu_image(self, output_dir: str) -> bool:
+    def save_menu_image(self, output_dir: str, max_retries: int = 3) -> bool:
         logger.info("Deleting an existing menu image")
         menu_img = pathlib.Path(output_dir, "menu.png")
         menu_img.unlink(missing_ok=True)
-        logger.info("fetching menu image")
-        self.driver.get(self.VANGOHAN_URL)
-        if self._fetch_menu_image(" Menu", menu_img):
-            return True
-        elif self._fetch_menu_image(
-            VangohanScraper.tuesday_string(abbr=False), menu_img
-        ):
-            return True
-        elif self._fetch_menu_image(
-            VangohanScraper.tuesday_string(abbr=True), menu_img
-        ):
-            return True
-        else:
-            return False
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"fetching menu image (attempt {attempt + 1}/{max_retries})")
+                self.driver.get(self.VANGOHAN_URL)
+                if self._fetch_menu_image(" Menu", menu_img):
+                    return True
+                elif self._fetch_menu_image(
+                    VangohanScraper.tuesday_string(abbr=False), menu_img
+                ):
+                    return True
+                elif self._fetch_menu_image(
+                    VangohanScraper.tuesday_string(abbr=True), menu_img
+                ):
+                    return True
+                else:
+                    return False
+            except WebDriverException as e:
+                logger.warning(f"WebDriverException on attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    self._reinitialize_driver()
+                else:
+                    logger.error(f"Failed to fetch menu image after {max_retries} attempts")
+                    return False
+        return False
 
     def _fetch_menu_image(self, target_str: str, menu_img: pathlib.Path) -> bool:
         logger.info(f"{target_str=}")
@@ -268,6 +288,8 @@ class VangohanScraper:
             except (WebDriverException, TimeoutException) as e:
                 logger.warning(f"Error fetching {url} on attempt {attempt + 1}: {e}")
                 if attempt < max_retries - 1:
+                    if isinstance(e, WebDriverException) and not isinstance(e, TimeoutException):
+                        self._reinitialize_driver()
                     time.sleep(1)
                 else:
                     logger.error(f"Failed to fetch {url} after {max_retries} attempts")
