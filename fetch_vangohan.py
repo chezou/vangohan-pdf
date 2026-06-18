@@ -282,17 +282,15 @@ class VangohanScraper:
                 if attempt < max_retries - 1:
                     time.sleep(1)
                 else:
-                    logger.error(f"Failed to fetch {url} after {max_retries} attempts")
-                    return ""
+                    raise
 
             except WebDriverException as e:
                 logger.warning(f"WebDriverException fetching {url} on attempt {attempt + 1}: {e}")
                 self._reinitialize_driver()
                 if attempt >= max_retries - 1:
-                    logger.error(f"Failed to fetch {url} after {max_retries} attempts")
-                    return ""
+                    raise
 
-        return ""
+        raise RuntimeError(f"Failed to fetch {url} after {max_retries} attempts")
 
     def save_recipes(
         self, recipes: List[str], fname: str, image_exist: bool = True, lang: str = "ja"
