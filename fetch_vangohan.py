@@ -272,7 +272,7 @@ class VangohanScraper:
             try:
                 logger.info(f"Fetching {url} (attempt {attempt + 1}/{max_retries})")
                 self.driver.get(url)
-                content_path = '//div[@class="notion-page-content"]'
+                content_path = '//div[contains(@class, "notion-page-content")]'
                 content = WebDriverWait(self.driver, 60).until(
                     EC.presence_of_element_located((By.XPATH, content_path))
                 )
