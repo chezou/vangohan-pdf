@@ -84,18 +84,11 @@ class VangohanScraper:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
         chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--max_old_space_size=4096")
-        chrome_options.add_argument("--memory-pressure-off")
-        chrome_options.add_argument("--disable-crash-reporter")
-        chrome_options.add_argument("--disable-in-process-stack-traces")
-        chrome_options.add_argument("--disable-logging")
-        chrome_options.add_argument("--disable-background-media")
+        chrome_options.add_argument(
+            "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+        )
         return chrome_options
 
     def __del__(self):
@@ -103,6 +96,15 @@ class VangohanScraper:
             self.driver.quit()
         except Exception:
             pass
+
+    def _dump_debug(self, label: str):
+        try:
+            logger.error(f"[DEBUG {label}] title={self.driver.title}")
+            logger.error(f"[DEBUG {label}] url={self.driver.current_url}")
+            self.driver.save_screenshot(f"debug_{label}.png")
+            logger.error(f"[DEBUG {label}] screenshot saved to debug_{label}.png")
+        except Exception as e:
+            logger.error(f"[DEBUG {label}] failed to dump debug info: {e}")
 
     def _reinitialize_driver(self):
         logger.info("Reinitializing Chrome driver")
@@ -183,6 +185,7 @@ class VangohanScraper:
             return True
         except TimeoutException:
             logger.error(f"TimeoutException to fetch menu image for {target_str}")
+            self._dump_debug("menu_image")
             return False
 
     def fetch_recipes(self) -> List[str]:
@@ -223,6 +226,7 @@ class VangohanScraper:
 
         except WebDriverException as e:
             logger.error(f"WebDriverException while fetching recipe list: {e}")
+            self._dump_debug("fetch_recipes")
             logger.info("Reinitializing driver and retrying once...")
             self._reinitialize_driver()
             time.sleep(2)
@@ -282,12 +286,8 @@ class VangohanScraper:
 
             except TimeoutException as e:
                 logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
+                self._dump_debug(f"recipe_attempt{attempt + 1}")
                 if attempt >= max_retries - 1:
-                    classes = self.driver.execute_script(
-                        "return [...document.querySelectorAll('[class*=\"notion\"]')]"
-                        ".map(el => el.tagName + '.' + el.className).join('\\n')"
-                    )
-                    logger.error(f"Notion elements on page:\n{classes}")
                     raise
                 time.sleep(1)
 
