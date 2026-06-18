@@ -273,9 +273,11 @@ class VangohanScraper:
                 self.driver.get(url)
                 content_path = '//div[@class="notion-page-content"]'
                 content = WebDriverWait(self.driver, 60).until(
-                    EC.visibility_of_element_located((By.XPATH, content_path))
+                    EC.presence_of_element_located((By.XPATH, content_path))
                 )
-                return content.get_attribute("innerText")
+                return self.driver.execute_script(
+                    "return arguments[0].innerText", content
+                )
 
             except TimeoutException as e:
                 logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
