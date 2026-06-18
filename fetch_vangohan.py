@@ -97,17 +97,6 @@ class VangohanScraper:
         except Exception:
             pass
 
-    def _dump_debug(self, label: str):
-        try:
-            logger.error(f"[DEBUG {label}] title={self.driver.title}")
-            logger.error(f"[DEBUG {label}] url={self.driver.current_url}")
-            page_source = self.driver.page_source
-            logger.error(f"[DEBUG {label}] page_source (first 2000 chars):\n{page_source[:2000]}")
-            self.driver.save_screenshot(f"debug_{label}.png")
-            logger.error(f"[DEBUG {label}] screenshot saved to debug_{label}.png")
-        except Exception as e:
-            logger.error(f"[DEBUG {label}] failed to dump debug info: {e}")
-
     def _reinitialize_driver(self):
         logger.info("Reinitializing Chrome driver")
         try:
@@ -187,7 +176,6 @@ class VangohanScraper:
             return True
         except TimeoutException:
             logger.error(f"TimeoutException to fetch menu image for {target_str}")
-            self._dump_debug("menu_image")
             return False
 
     def fetch_recipes(self) -> List[str]:
@@ -228,7 +216,6 @@ class VangohanScraper:
 
         except WebDriverException as e:
             logger.error(f"WebDriverException while fetching recipe list: {e}")
-            self._dump_debug("fetch_recipes")
             logger.info("Reinitializing driver and retrying once...")
             self._reinitialize_driver()
             time.sleep(2)
@@ -280,7 +267,7 @@ class VangohanScraper:
                 self.driver.get(url)
 
                 # Wait for Notion's JS app to initialize
-                WebDriverWait(self.driver, 120).until(
+                WebDriverWait(self.driver, 60).until(
                     lambda d: d.execute_script(
                         "return document.querySelector('[class*=\"notion\"]') !== null"
                     )
@@ -288,7 +275,7 @@ class VangohanScraper:
                 logger.info("Notion app rendered, waiting for page content...")
 
                 content_path = '//div[contains(@class, "notion-page-content")]'
-                content = WebDriverWait(self.driver, 120).until(
+                content = WebDriverWait(self.driver, 60).until(
                     EC.presence_of_element_located((By.XPATH, content_path))
                 )
                 return self.driver.execute_script(
@@ -297,7 +284,6 @@ class VangohanScraper:
 
             except TimeoutException as e:
                 logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
-                self._dump_debug(f"recipe_attempt{attempt + 1}")
                 if attempt >= max_retries - 1:
                     raise
                 time.sleep(1)
