@@ -101,6 +101,8 @@ class VangohanScraper:
         try:
             logger.error(f"[DEBUG {label}] title={self.driver.title}")
             logger.error(f"[DEBUG {label}] url={self.driver.current_url}")
+            page_source = self.driver.page_source
+            logger.error(f"[DEBUG {label}] page_source (first 2000 chars):\n{page_source[:2000]}")
             self.driver.save_screenshot(f"debug_{label}.png")
             logger.error(f"[DEBUG {label}] screenshot saved to debug_{label}.png")
         except Exception as e:
