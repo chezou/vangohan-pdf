@@ -97,6 +97,14 @@ class VangohanScraper:
         except Exception:
             pass
 
+    def _wait_for_cloudflare(self, timeout: int = 120):
+        if self.driver.title == "Just a moment...":
+            logger.info("Cloudflare challenge detected, waiting for Turnstile to solve...")
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: d.title != "Just a moment..."
+            )
+            logger.info(f"Cloudflare challenge passed, page title: {self.driver.title}")
+
     def _reinitialize_driver(self):
         logger.info("Reinitializing Chrome driver")
         try:
@@ -127,6 +135,7 @@ class VangohanScraper:
             try:
                 logger.info(f"fetching menu image (attempt {attempt + 1}/{max_retries})")
                 self.driver.get(self.VANGOHAN_URL)
+                self._wait_for_cloudflare()
                 if self._fetch_menu_image(" Menu", menu_img):
                     return True
                 elif self._fetch_menu_image(
@@ -183,6 +192,7 @@ class VangohanScraper:
             logger.info("fetching recipes")
 
             self.driver.get(self.VANGOHAN_URL)
+            self._wait_for_cloudflare()
             articles = WebDriverWait(self.driver, 30).until(
                 EC.visibility_of_all_elements_located(
                     (
@@ -214,50 +224,8 @@ class VangohanScraper:
 
             return recipes
 
-        except WebDriverException as e:
-            logger.error(f"WebDriverException while fetching recipe list: {e}")
-            logger.info("Reinitializing driver and retrying once...")
-            self._reinitialize_driver()
-            time.sleep(2)
-
-            try:
-                self.driver.get(self.VANGOHAN_URL)
-                articles = WebDriverWait(self.driver, 30).until(
-                    EC.visibility_of_all_elements_located(
-                        (
-                            By.XPATH,
-                            '//div[contains(@class, "notion-collection-item")]/a',
-                        )
-                    )
-                )
-                urls = [article.get_attribute("href") for article in articles]
-                logger.info(f"Retry successful, found {len(urls)} URLs")
-
-                recipes = []
-                IGNORE_URL_PATTERNS = [
-                    "Welcome-to-VanGohan",
-                    "Printable-instructions-",
-                    VangohanScraper.tuesday_string(hyphenated=True),
-                    VangohanScraper.tuesday_string(hyphenated=True, abbr=True),
-                    "-Menu-",
-                ]
-
-                for url in urls:
-                    if any(pat in url for pat in IGNORE_URL_PATTERNS):
-                        continue
-
-                    recipe_content = self._fetch_single_recipe(url, max_retries=3)
-                    if recipe_content:
-                        recipes.append(recipe_content)
-
-                return recipes
-
-            except Exception as retry_e:
-                logger.error(f"Retry also failed: {retry_e}")
-                raise
-
         except Exception as e:
-            logger.error(f"Unexpected error while fetching recipes: {e}")
+            logger.error(f"Error while fetching recipes: {e}")
             raise
 
     def _fetch_single_recipe(self, url: str, max_retries: int = 2) -> str:
@@ -265,14 +233,7 @@ class VangohanScraper:
             try:
                 logger.info(f"Fetching {url} (attempt {attempt + 1}/{max_retries})")
                 self.driver.get(url)
-
-                # Wait for Notion's JS app to initialize
-                WebDriverWait(self.driver, 60).until(
-                    lambda d: d.execute_script(
-                        "return document.querySelector('[class*=\"notion\"]') !== null"
-                    )
-                )
-                logger.info("Notion app rendered, waiting for page content...")
+                self._wait_for_cloudflare()
 
                 content_path = '//div[contains(@class, "notion-page-content")]'
                 content = WebDriverWait(self.driver, 60).until(
@@ -290,7 +251,6 @@ class VangohanScraper:
 
             except WebDriverException as e:
                 logger.warning(f"WebDriverException fetching {url} on attempt {attempt + 1}: {e}")
-                self._reinitialize_driver()
                 if attempt >= max_retries - 1:
                     raise
 
