@@ -271,14 +271,8 @@ class VangohanScraper:
             try:
                 logger.info(f"Fetching {url} (attempt {attempt + 1}/{max_retries})")
                 self.driver.get(url)
-                WebDriverWait(self.driver, 40).until(
-                    EC.text_to_be_present_in_element(
-                        (By.XPATH, '//span[@class="notranslate"]'),
-                        "VanGohan Instructions Upcoming",
-                    )
-                )
                 content_path = '//div[@class="notion-page-content"]'
-                content = WebDriverWait(self.driver, 40).until(
+                content = WebDriverWait(self.driver, 60).until(
                     EC.visibility_of_element_located((By.XPATH, content_path))
                 )
                 return content.get_attribute("innerText")
