@@ -6,7 +6,6 @@
 #   "httpx",
 #   "pillow",
 #   "selenium",
-#   "chromedriver-autoinstaller",
 #   "click",
 #   "markdown",
 # ]
@@ -23,7 +22,6 @@ import time
 from io import BytesIO
 from typing import List
 
-import chromedriver_autoinstaller
 import click
 import httpx
 import markdown
@@ -75,30 +73,23 @@ class VangohanScraper:
     VANGOHAN_URL = "https://light-nyala-71c.notion.site/VanGohan-Instructions-0290b31c1baf4eeab79613508adeba38"
 
     def __init__(self):
-        chromedriver_autoinstaller.install()
+        self._chrome_options = self._build_chrome_options()
+        self.driver = webdriver.Chrome(options=self._chrome_options)
 
+    @staticmethod
+    def _build_chrome_options() -> webdriver.ChromeOptions:
         chrome_options = webdriver.ChromeOptions()
-        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
         chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--max_old_space_size=4096")
-        chrome_options.add_argument("--memory-pressure-off")
-
-        chrome_options.add_argument("--disable-crash-reporter")
-        chrome_options.add_argument("--disable-in-process-stack-traces")
-        chrome_options.add_argument("--disable-logging")
-        chrome_options.add_argument("--disable-background-media")
-
-        self.driver = webdriver.Chrome(
-            options=chrome_options,
+        chrome_options.add_argument(
+            "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
         )
+        return chrome_options
 
     def __del__(self):
         try:
@@ -106,15 +97,24 @@ class VangohanScraper:
         except Exception:
             pass
 
+    def _wait_for_cloudflare(self, timeout: int = 120):
+        if self.driver.title == "Just a moment...":
+            logger.info("Cloudflare challenge detected, waiting for Turnstile to solve...")
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: d.title != "Just a moment..."
+            )
+            logger.info(f"Cloudflare challenge passed, page title: {self.driver.title}")
+
     def _reinitialize_driver(self):
-        """Quit the current driver and create a new one."""
         logger.info("Reinitializing Chrome driver")
         try:
             self.driver.quit()
         except Exception:
             pass
-        time.sleep(2)
-        self.__init__()
+        time.sleep(3)
+        self.driver = webdriver.Chrome(options=self._chrome_options)
+        self.driver.get("about:blank")
+        time.sleep(1)
 
     @classmethod
     def tuesday_string(cls, hyphenated: bool = False, abbr: bool = False) -> str:
@@ -135,6 +135,7 @@ class VangohanScraper:
             try:
                 logger.info(f"fetching menu image (attempt {attempt + 1}/{max_retries})")
                 self.driver.get(self.VANGOHAN_URL)
+                self._wait_for_cloudflare()
                 if self._fetch_menu_image(" Menu", menu_img):
                     return True
                 elif self._fetch_menu_image(
@@ -191,6 +192,7 @@ class VangohanScraper:
             logger.info("fetching recipes")
 
             self.driver.get(self.VANGOHAN_URL)
+            self._wait_for_cloudflare()
             articles = WebDriverWait(self.driver, 30).until(
                 EC.visibility_of_all_elements_located(
                     (
@@ -222,50 +224,8 @@ class VangohanScraper:
 
             return recipes
 
-        except WebDriverException as e:
-            logger.error(f"WebDriverException while fetching recipe list: {e}")
-            logger.info("Reinitializing driver and retrying once...")
-            self._reinitialize_driver()
-            time.sleep(2)
-
-            try:
-                self.driver.get(self.VANGOHAN_URL)
-                articles = WebDriverWait(self.driver, 30).until(
-                    EC.visibility_of_all_elements_located(
-                        (
-                            By.XPATH,
-                            '//div[contains(@class, "notion-collection-item")]/a',
-                        )
-                    )
-                )
-                urls = [article.get_attribute("href") for article in articles]
-                logger.info(f"Retry successful, found {len(urls)} URLs")
-
-                recipes = []
-                IGNORE_URL_PATTERNS = [
-                    "Welcome-to-VanGohan",
-                    "Printable-instructions-",
-                    VangohanScraper.tuesday_string(hyphenated=True),
-                    VangohanScraper.tuesday_string(hyphenated=True, abbr=True),
-                    "-Menu-",
-                ]
-
-                for url in urls:
-                    if any(pat in url for pat in IGNORE_URL_PATTERNS):
-                        continue
-
-                    recipe_content = self._fetch_single_recipe(url, max_retries=3)
-                    if recipe_content:
-                        recipes.append(recipe_content)
-
-                return recipes
-
-            except Exception as retry_e:
-                logger.error(f"Retry also failed: {retry_e}")
-                raise
-
         except Exception as e:
-            logger.error(f"Unexpected error while fetching recipes: {e}")
+            logger.error(f"Error while fetching recipes: {e}")
             raise
 
     def _fetch_single_recipe(self, url: str, max_retries: int = 2) -> str:
@@ -273,29 +233,28 @@ class VangohanScraper:
             try:
                 logger.info(f"Fetching {url} (attempt {attempt + 1}/{max_retries})")
                 self.driver.get(url)
-                WebDriverWait(self.driver, 40).until(
-                    EC.text_to_be_present_in_element(
-                        (By.XPATH, '//span[@class="notranslate"]'),
-                        "VanGohan Instructions Upcoming",
-                    )
-                )
-                content_path = '//div[@class="notion-page-content"]'
-                content = WebDriverWait(self.driver, 40).until(
-                    EC.visibility_of_element_located((By.XPATH, content_path))
-                )
-                return content.get_attribute("innerText")
+                self._wait_for_cloudflare()
 
-            except (WebDriverException, TimeoutException) as e:
-                logger.warning(f"Error fetching {url} on attempt {attempt + 1}: {e}")
-                if attempt < max_retries - 1:
-                    if isinstance(e, WebDriverException) and not isinstance(e, TimeoutException):
-                        self._reinitialize_driver()
-                    time.sleep(1)
-                else:
-                    logger.error(f"Failed to fetch {url} after {max_retries} attempts")
-                    return ""
+                content_path = '//div[contains(@class, "notion-page-content")]'
+                content = WebDriverWait(self.driver, 60).until(
+                    EC.presence_of_element_located((By.XPATH, content_path))
+                )
+                return self.driver.execute_script(
+                    "return arguments[0].innerText", content
+                )
 
-        return ""
+            except TimeoutException as e:
+                logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
+                if attempt >= max_retries - 1:
+                    raise
+                time.sleep(1)
+
+            except WebDriverException as e:
+                logger.warning(f"WebDriverException fetching {url} on attempt {attempt + 1}: {e}")
+                if attempt >= max_retries - 1:
+                    raise
+
+        raise RuntimeError(f"Failed to fetch {url} after {max_retries} attempts")
 
     def save_recipes(
         self, recipes: List[str], fname: str, image_exist: bool = True, lang: str = "ja"
