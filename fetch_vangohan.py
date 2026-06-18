@@ -278,6 +278,15 @@ class VangohanScraper:
             try:
                 logger.info(f"Fetching {url} (attempt {attempt + 1}/{max_retries})")
                 self.driver.get(url)
+
+                # Wait for Notion's JS app to initialize
+                WebDriverWait(self.driver, 30).until(
+                    lambda d: d.execute_script(
+                        "return document.querySelector('[class*=\"notion\"]') !== null"
+                    )
+                )
+                logger.info("Notion app rendered, waiting for page content...")
+
                 content_path = '//div[contains(@class, "notion-page-content")]'
                 content = WebDriverWait(self.driver, 60).until(
                     EC.presence_of_element_located((By.XPATH, content_path))
