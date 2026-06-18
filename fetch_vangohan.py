@@ -6,7 +6,6 @@
 #   "httpx",
 #   "pillow",
 #   "selenium",
-#   "chromedriver-autoinstaller",
 #   "click",
 #   "markdown",
 # ]
@@ -23,7 +22,6 @@ import time
 from io import BytesIO
 from typing import List
 
-import chromedriver_autoinstaller
 import click
 import httpx
 import markdown
@@ -75,8 +73,11 @@ class VangohanScraper:
     VANGOHAN_URL = "https://light-nyala-71c.notion.site/VanGohan-Instructions-0290b31c1baf4eeab79613508adeba38"
 
     def __init__(self):
-        chromedriver_autoinstaller.install()
+        self._chrome_options = self._build_chrome_options()
+        self.driver = webdriver.Chrome(options=self._chrome_options)
 
+    @staticmethod
+    def _build_chrome_options() -> webdriver.ChromeOptions:
         chrome_options = webdriver.ChromeOptions()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
@@ -90,15 +91,11 @@ class VangohanScraper:
         chrome_options.add_argument("--disable-renderer-backgrounding")
         chrome_options.add_argument("--max_old_space_size=4096")
         chrome_options.add_argument("--memory-pressure-off")
-
         chrome_options.add_argument("--disable-crash-reporter")
         chrome_options.add_argument("--disable-in-process-stack-traces")
         chrome_options.add_argument("--disable-logging")
         chrome_options.add_argument("--disable-background-media")
-
-        self.driver = webdriver.Chrome(
-            options=chrome_options,
-        )
+        return chrome_options
 
     def __del__(self):
         try:
@@ -107,14 +104,15 @@ class VangohanScraper:
             pass
 
     def _reinitialize_driver(self):
-        """Quit the current driver and create a new one."""
         logger.info("Reinitializing Chrome driver")
         try:
             self.driver.quit()
         except Exception:
             pass
-        time.sleep(2)
-        self.__init__()
+        time.sleep(3)
+        self.driver = webdriver.Chrome(options=self._chrome_options)
+        self.driver.get("about:blank")
+        time.sleep(1)
 
     @classmethod
     def tuesday_string(cls, hyphenated: bool = False, abbr: bool = False) -> str:
@@ -285,13 +283,18 @@ class VangohanScraper:
                 )
                 return content.get_attribute("innerText")
 
-            except (WebDriverException, TimeoutException) as e:
-                logger.warning(f"Error fetching {url} on attempt {attempt + 1}: {e}")
+            except TimeoutException as e:
+                logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
                 if attempt < max_retries - 1:
-                    if isinstance(e, WebDriverException) and not isinstance(e, TimeoutException):
-                        self._reinitialize_driver()
                     time.sleep(1)
                 else:
+                    logger.error(f"Failed to fetch {url} after {max_retries} attempts")
+                    return ""
+
+            except WebDriverException as e:
+                logger.warning(f"WebDriverException fetching {url} on attempt {attempt + 1}: {e}")
+                self._reinitialize_driver()
+                if attempt >= max_retries - 1:
                     logger.error(f"Failed to fetch {url} after {max_retries} attempts")
                     return ""
 
