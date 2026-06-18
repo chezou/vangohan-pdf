@@ -280,7 +280,7 @@ class VangohanScraper:
                 self.driver.get(url)
 
                 # Wait for Notion's JS app to initialize
-                WebDriverWait(self.driver, 30).until(
+                WebDriverWait(self.driver, 120).until(
                     lambda d: d.execute_script(
                         "return document.querySelector('[class*=\"notion\"]') !== null"
                     )
@@ -288,7 +288,7 @@ class VangohanScraper:
                 logger.info("Notion app rendered, waiting for page content...")
 
                 content_path = '//div[contains(@class, "notion-page-content")]'
-                content = WebDriverWait(self.driver, 60).until(
+                content = WebDriverWait(self.driver, 120).until(
                     EC.presence_of_element_located((By.XPATH, content_path))
                 )
                 return self.driver.execute_script(
