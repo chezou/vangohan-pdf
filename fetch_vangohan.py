@@ -279,10 +279,14 @@ class VangohanScraper:
 
             except TimeoutException as e:
                 logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(1)
-                else:
+                if attempt >= max_retries - 1:
+                    classes = self.driver.execute_script(
+                        "return [...document.querySelectorAll('[class*=\"notion\"]')]"
+                        ".map(el => el.tagName + '.' + el.className).join('\\n')"
+                    )
+                    logger.error(f"Notion elements on page:\n{classes}")
                     raise
+                time.sleep(1)
 
             except WebDriverException as e:
                 logger.warning(f"WebDriverException fetching {url} on attempt {attempt + 1}: {e}")
