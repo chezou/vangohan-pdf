@@ -97,13 +97,18 @@ class VangohanScraper:
         except Exception:
             pass
 
+    def _is_cloudflare_challenge(self) -> bool:
+        return self.driver.title == "Just a moment..."
+
     def _wait_for_cloudflare(self, timeout: int = 120):
-        if self.driver.title == "Just a moment...":
+        time.sleep(2)
+        if self._is_cloudflare_challenge():
             logger.info("Cloudflare challenge detected, waiting for Turnstile to solve...")
             WebDriverWait(self.driver, timeout).until(
                 lambda d: d.title != "Just a moment..."
             )
             logger.info(f"Cloudflare challenge passed, page title: {self.driver.title}")
+            time.sleep(2)
 
     def _reinitialize_driver(self):
         logger.info("Reinitializing Chrome driver")
@@ -179,12 +184,16 @@ class VangohanScraper:
             )
             src = img.get_attribute("src")
             r = httpx.get(src, follow_redirects=True)
+            r.raise_for_status()
             i = Image.open(BytesIO(r.content))
             i.save(menu_img)
 
             return True
         except TimeoutException:
             logger.error(f"TimeoutException to fetch menu image for {target_str}")
+            return False
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching menu image: {e.response.status_code}")
             return False
 
     def fetch_recipes(self) -> List[str]:
