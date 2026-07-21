@@ -32,21 +32,13 @@ jobs:
         run: |
           sudo apt-get install fonts-ipafont fonts-ipaexfont
 
-      - name: Running the Python script (Japanese)
+      - name: Running the Python script
         uses: nick-fields/retry@v4
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 30
-          command: ./fetch_vangohan.py -o docs
-
-      - name: Running the Python script (English)
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 30
-          command: ./fetch_vangohan.py -o docs -l en
+          command: ./fetch_vangohan.py -o docs -l ja -l en
 
       - name: Commit and Push The Results From Python Selenium Action
         if: github.ref == 'refs/heads/main'

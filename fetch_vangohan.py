@@ -385,7 +385,9 @@ def md2html(input_fname: str, output_fname: str):
 
 
 @click.command()
-@click.option("-l", "--lang", default="ja", help="language (ja or en)")
+@click.option(
+    "-l", "--lang", multiple=True, default=("ja",), help="language (ja or en, repeatable)"
+)
 @click.option("-o", "--output", default="results", help="output folder name")
 def cli(lang, output):
     vs = VangohanScraper()
@@ -393,17 +395,18 @@ def cli(lang, output):
     image_exist = vs.save_menu_image(output)
     recipes = vs.fetch_recipes()
 
-    base_name = "vangohan" + ("_en" if lang == "en" else "")
-
-    vs.save_recipes(recipes, f"{base_name}.md", image_exist=image_exist, lang=lang)
     shutil.copy("bootstrap.min.css", output)
 
-    md2html(f"{base_name}.md", pathlib.Path(output, f"{base_name}.html"))
+    for l in lang:
+        base_name = "vangohan" + ("_en" if l == "en" else "")
+        logger.info(f"Generating output for language: {l}")
 
-    vs.html2pdf2(
-        pathlib.Path(output, f"{base_name}.html"),
-        pathlib.Path(output, f"{base_name}.pdf"),
-    )
+        vs.save_recipes(recipes, f"{base_name}.md", image_exist=image_exist, lang=l)
+        md2html(f"{base_name}.md", pathlib.Path(output, f"{base_name}.html"))
+        vs.html2pdf2(
+            pathlib.Path(output, f"{base_name}.html"),
+            pathlib.Path(output, f"{base_name}.pdf"),
+        )
 
 
 if __name__ == "__main__":
