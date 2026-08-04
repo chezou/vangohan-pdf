@@ -3,7 +3,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "httpx",
+#   "httpx2",
 #   "pillow",
 #   "selenium",
 #   "click",
@@ -16,21 +16,27 @@ import base64
 import datetime
 import logging
 import os
+import re
 import shutil
 import pathlib
 import time
 from io import BytesIO
-from typing import List
+from typing import List, Optional
+from urllib.parse import parse_qs, urlparse
 
 import click
-import httpx
+import httpx2
 import markdown
 from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import (
+    StaleElementReferenceException,
+    TimeoutException,
+    WebDriverException,
+)
 
 # This template is based on https://gist.github.com/Fedik/674f4148439698a6681032b3bec370b3
 TEMPLATE = """<!DOCTYPE html>
@@ -71,10 +77,24 @@ logging.getLogger("WDM").setLevel(logging.WARNING)
 
 class VangohanScraper:
     VANGOHAN_URL = "https://light-nyala-71c.notion.site/VanGohan-Instructions-0290b31c1baf4eeab79613508adeba38"
+    ARTICLE_XPATH = '//div[contains(@class, "notion-collection-item")]/a'
+    # A Notion page link is a title slug followed by a 32 hex digit page id. A database
+    # view is a bare id with a ?v= view id, which is not a page we can scrape.
+    NOTION_PAGE_RE = re.compile(r"^https://[^/]+\.notion\.site/[^/?#]+-[0-9a-f]{32}(?:[?#]|$)")
+    # Titles/body text Notion or Cloudflare shows instead of the page itself
+    BLOCK_MARKERS = (
+        "attention required",
+        "access denied",
+        "too many requests",
+        "error 429",
+        "rate limit",
+        "you have been blocked",
+    )
 
     def __init__(self):
         self._chrome_options = self._build_chrome_options()
         self.driver = webdriver.Chrome(options=self._chrome_options)
+        self._article_urls: List[str] = []
 
     @staticmethod
     def _build_chrome_options() -> webdriver.ChromeOptions:
@@ -107,6 +127,87 @@ class VangohanScraper:
             logger.info(f"Cloudflare challenge passed, page title: {self.driver.title}")
             time.sleep(2)
 
+    def _blocked_reason(self) -> Optional[str]:
+        """Return a short reason if Notion/Cloudflare served an interstitial instead of the page."""
+        try:
+            title = (self.driver.title or "").lower()
+            body = self.driver.find_element(By.TAG_NAME, "body").text[:1000].lower()
+        except WebDriverException:
+            return None
+
+        for marker in self.BLOCK_MARKERS:
+            if marker in title or marker in body:
+                return marker
+        return None
+
+    def _log_page_diagnostics(self, context: str):
+        """Dump enough page state to tell a blocked page apart from a changed DOM."""
+        try:
+            logger.warning(f"Page diagnostics while {context}:")
+            logger.warning(f"  title={self.driver.title!r} url={self.driver.current_url!r}")
+            counts = self.driver.execute_script(
+                "return {anchors: document.querySelectorAll('a').length,"
+                " collection: document.querySelectorAll('[class*=\"notion-collection-item\"]').length,"
+                " notion: document.querySelectorAll('[class^=\"notion-\"]').length}"
+            )
+            logger.warning(f"  element counts={counts}")
+            body = self.driver.find_element(By.TAG_NAME, "body").text
+            logger.warning(f"  body[:500]={body[:500]!r}")
+        except WebDriverException as e:
+            logger.warning(f"  could not collect diagnostics: {e}")
+
+    def _load_top_page(self):
+        self.driver.get(self.VANGOHAN_URL)
+        self._wait_for_cloudflare()
+        reason = self._blocked_reason()
+        if reason:
+            logger.warning(f"Top page looks blocked/throttled: {reason}")
+        return reason is None
+
+    @classmethod
+    def _is_notion_page_url(cls, url: str) -> bool:
+        if not url or not cls.NOTION_PAGE_RE.match(url):
+            return False
+        # ?v= marks a database view, e.g. the "Future Schedule" list behind the collection
+        return "v" not in parse_qs(urlparse(url).query)
+
+    @staticmethod
+    def _has_menu_link(urls: List[str]) -> bool:
+        return any("-Menu-" in url for url in urls)
+
+    def _article_urls_on_page(self) -> List[str]:
+        """Page links of the currently loaded page, class based with an href fallback."""
+        elements = self.driver.find_elements(By.XPATH, self.ARTICLE_XPATH)
+        urls = [element.get_attribute("href") for element in elements]
+        if not urls:
+            # Notion renamed its collection CSS classes; recognise pages by their URL
+            urls = self.driver.execute_script(
+                "return Array.from(document.querySelectorAll('a[href]')).map(a => a.href)"
+            )
+        return [url for url in dict.fromkeys(urls or []) if self._is_notion_page_url(url)]
+
+    def _collect_article_urls(self, timeout: int = 60) -> List[str]:
+        """Wait for the collection to render, then return its page links.
+
+        Waits for this week's menu item rather than for the first link to appear:
+        Notion fills the collection in incrementally, so returning early can cache a
+        partial list for the rest of the run.
+        """
+        try:
+            return WebDriverWait(
+                self.driver, timeout, ignored_exceptions=(StaleElementReferenceException,)
+            ).until(lambda d: self._settled_article_urls())
+        except TimeoutException:
+            urls = self._article_urls_on_page()
+            logger.warning(
+                f"Collection never settled, continuing with {len(urls)} link(s) found so far"
+            )
+            return urls
+
+    def _settled_article_urls(self):
+        urls = self._article_urls_on_page()
+        return urls if self._has_menu_link(urls) else False
+
     def _reinitialize_driver(self):
         logger.info("Reinitializing Chrome driver")
         try:
@@ -136,8 +237,15 @@ class VangohanScraper:
         for attempt in range(max_retries):
             try:
                 logger.info(f"fetching menu image (attempt {attempt + 1}/{max_retries})")
-                self.driver.get(self.VANGOHAN_URL)
-                self._wait_for_cloudflare()
+                self._load_top_page()
+                # Harvest the recipe links while the top page is loaded, so fetch_recipes()
+                # does not have to reload it right after we navigated into the menu page.
+                # Only keep a complete list; a partial one would stick for the whole run.
+                if not self._article_urls:
+                    urls = self._collect_article_urls(timeout=30)
+                    if self._has_menu_link(urls):
+                        self._article_urls = urls
+                        logger.info(f"collected {len(urls)} recipe links")
                 if self._fetch_menu_image(" Menu", menu_img):
                     return True
                 elif self._fetch_menu_image(
@@ -180,7 +288,7 @@ class VangohanScraper:
                 )
             )
             src = img.get_attribute("src")
-            r = httpx.get(src, follow_redirects=True)
+            r = httpx2.get(src, follow_redirects=True, timeout=30)
             r.raise_for_status()
             i = Image.open(BytesIO(r.content))
             i.save(menu_img)
@@ -189,30 +297,52 @@ class VangohanScraper:
         except TimeoutException:
             logger.error(f"TimeoutException to fetch menu image for {target_str}")
             return False
-        except httpx.HTTPStatusError as e:
+        except httpx2.HTTPStatusError as e:
             logger.error(f"HTTP error fetching menu image: {e.response.status_code}")
             return False
+
+    def collect_recipe_urls(self, max_retries: int = 3) -> List[str]:
+        """Load the top page and return its collection links, retrying with backoff.
+
+        Notion regularly serves a partially rendered or throttled top page; a single
+        attempt at this is the flakiest step of the whole scrape.
+        """
+        last_urls: List[str] = []
+        for attempt in range(max_retries):
+            try:
+                self._load_top_page()
+                urls = self._collect_article_urls()
+                if self._has_menu_link(urls):
+                    return urls
+                last_urls = urls or last_urls
+                self._log_page_diagnostics("collecting recipe links")
+            except WebDriverException as e:
+                logger.warning(
+                    f"WebDriverException collecting recipe links on attempt {attempt + 1}: {e}"
+                )
+                self._reinitialize_driver()
+
+            if attempt < max_retries - 1:
+                wait = 10 * 2**attempt
+                logger.warning(f"Recipe links incomplete, retrying in {wait}s")
+                time.sleep(wait)
+
+        if last_urls:
+            logger.warning(f"Falling back to an incomplete list of {len(last_urls)} link(s)")
+            return last_urls
+
+        raise RuntimeError("Could not find any recipe links on the top page")
 
     def fetch_recipes(self) -> List[str]:
         try:
             logger.info("fetching recipes")
 
-            self.driver.get(self.VANGOHAN_URL)
-            self._wait_for_cloudflare()
-            articles = WebDriverWait(self.driver, 30).until(
-                EC.visibility_of_all_elements_located(
-                    (
-                        By.XPATH,
-                        '//div[contains(@class, "notion-collection-item")]/a',
-                    )
-                )
-            )
-
-            urls = [article.get_attribute("href") for article in articles]
+            urls = self._article_urls or self.collect_recipe_urls()
             logger.info(urls)
 
             recipes = []
             IGNORE_URL_PATTERNS = [
+                "VanGohan-Instructions",
                 "Welcome-to-VanGohan",
                 "Printable-instructions-",
                 VangohanScraper.tuesday_string(hyphenated=True),
@@ -251,14 +381,18 @@ class VangohanScraper:
 
             except TimeoutException as e:
                 logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
+                self._log_page_diagnostics(f"fetching {url}")
                 if attempt >= max_retries - 1:
                     raise
-                time.sleep(1)
+                time.sleep(5 * 2**attempt)
 
             except WebDriverException as e:
                 logger.warning(f"WebDriverException fetching {url} on attempt {attempt + 1}: {e}")
                 if attempt >= max_retries - 1:
                     raise
+                # The session is unusable after e.g. "tab crashed"; retrying on the same
+                # driver just replays the same error immediately.
+                self._reinitialize_driver()
 
         raise RuntimeError(f"Failed to fetch {url} after {max_retries} attempts")
 

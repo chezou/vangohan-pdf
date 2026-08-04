@@ -1,3 +1,4 @@
 tmp
 .venv
 vangohan*.md
+__pycache__
