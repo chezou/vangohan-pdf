@@ -22,6 +22,7 @@ import pathlib
 import time
 from io import BytesIO
 from typing import List, Optional
+from urllib.parse import parse_qs, urlparse
 
 import click
 import httpx2
@@ -31,7 +32,11 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import (
+    StaleElementReferenceException,
+    TimeoutException,
+    WebDriverException,
+)
 
 # This template is based on https://gist.github.com/Fedik/674f4148439698a6681032b3bec370b3
 TEMPLATE = """<!DOCTYPE html>
@@ -73,8 +78,9 @@ logging.getLogger("WDM").setLevel(logging.WARNING)
 class VangohanScraper:
     VANGOHAN_URL = "https://light-nyala-71c.notion.site/VanGohan-Instructions-0290b31c1baf4eeab79613508adeba38"
     ARTICLE_XPATH = '//div[contains(@class, "notion-collection-item")]/a'
-    # Notion page URLs always end with a 32 hex digit page id
-    NOTION_PAGE_RE = re.compile(r"^https://[^/]+\.notion\.site/[^/?#]*[0-9a-f]{32}")
+    # A Notion page link is a title slug followed by a 32 hex digit page id. A database
+    # view is a bare id with a ?v= view id, which is not a page we can scrape.
+    NOTION_PAGE_RE = re.compile(r"^https://[^/]+\.notion\.site/[^/?#]+-[0-9a-f]{32}(?:[?#]|$)")
     # Titles/body text Notion or Cloudflare shows instead of the page itself
     BLOCK_MARKERS = (
         "attention required",
@@ -158,37 +164,49 @@ class VangohanScraper:
             logger.warning(f"Top page looks blocked/throttled: {reason}")
         return reason is None
 
-    def _collect_article_urls(self, timeout: int = 60) -> List[str]:
-        """Collect the collection item links of the currently loaded top page.
+    @classmethod
+    def _is_notion_page_url(cls, url: str) -> bool:
+        if not url or not cls.NOTION_PAGE_RE.match(url):
+            return False
+        # ?v= marks a database view, e.g. the "Future Schedule" list behind the collection
+        return "v" not in parse_qs(urlparse(url).query)
 
-        Uses presence (not visibility): Notion renders collection items lazily, so
-        requiring *every* matched element to be visible can never settle, and we only
-        need the href anyway.
-        """
-        urls: List[str] = []
-        try:
-            articles = WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_all_elements_located((By.XPATH, self.ARTICLE_XPATH))
-            )
-            urls = [article.get_attribute("href") for article in articles]
-        except TimeoutException:
-            logger.warning("No notion-collection-item links found, falling back to href pattern")
+    @staticmethod
+    def _has_menu_link(urls: List[str]) -> bool:
+        return any("-Menu-" in url for url in urls)
 
+    def _article_urls_on_page(self) -> List[str]:
+        """Page links of the currently loaded page, class based with an href fallback."""
+        elements = self.driver.find_elements(By.XPATH, self.ARTICLE_XPATH)
+        urls = [element.get_attribute("href") for element in elements]
         if not urls:
-            urls = self._collect_article_urls_by_href()
+            # Notion renamed its collection CSS classes; recognise pages by their URL
+            urls = self.driver.execute_script(
+                "return Array.from(document.querySelectorAll('a[href]')).map(a => a.href)"
+            )
+        return [url for url in dict.fromkeys(urls or []) if self._is_notion_page_url(url)]
 
-        return [url for url in urls if url]
+    def _collect_article_urls(self, timeout: int = 60) -> List[str]:
+        """Wait for the collection to render, then return its page links.
 
-    def _collect_article_urls_by_href(self) -> List[str]:
-        """Fallback for when Notion renames its collection CSS classes."""
-        hrefs = self.driver.execute_script(
-            "return Array.from(document.querySelectorAll('a[href]')).map(a => a.href)"
-        )
-        return [
-            href
-            for href in dict.fromkeys(hrefs or [])
-            if self.NOTION_PAGE_RE.match(href)
-        ]
+        Waits for this week's menu item rather than for the first link to appear:
+        Notion fills the collection in incrementally, so returning early can cache a
+        partial list for the rest of the run.
+        """
+        try:
+            return WebDriverWait(
+                self.driver, timeout, ignored_exceptions=(StaleElementReferenceException,)
+            ).until(lambda d: self._settled_article_urls())
+        except TimeoutException:
+            urls = self._article_urls_on_page()
+            logger.warning(
+                f"Collection never settled, continuing with {len(urls)} link(s) found so far"
+            )
+            return urls
+
+    def _settled_article_urls(self):
+        urls = self._article_urls_on_page()
+        return urls if self._has_menu_link(urls) else False
 
     def _reinitialize_driver(self):
         logger.info("Reinitializing Chrome driver")
@@ -222,9 +240,12 @@ class VangohanScraper:
                 self._load_top_page()
                 # Harvest the recipe links while the top page is loaded, so fetch_recipes()
                 # does not have to reload it right after we navigated into the menu page.
+                # Only keep a complete list; a partial one would stick for the whole run.
                 if not self._article_urls:
-                    self._article_urls = self._collect_article_urls(timeout=30)
-                    logger.info(f"collected {len(self._article_urls)} recipe links")
+                    urls = self._collect_article_urls(timeout=30)
+                    if self._has_menu_link(urls):
+                        self._article_urls = urls
+                        logger.info(f"collected {len(urls)} recipe links")
                 if self._fetch_menu_image(" Menu", menu_img):
                     return True
                 elif self._fetch_menu_image(
@@ -286,12 +307,14 @@ class VangohanScraper:
         Notion regularly serves a partially rendered or throttled top page; a single
         attempt at this is the flakiest step of the whole scrape.
         """
+        last_urls: List[str] = []
         for attempt in range(max_retries):
             try:
                 self._load_top_page()
                 urls = self._collect_article_urls()
-                if urls:
+                if self._has_menu_link(urls):
                     return urls
+                last_urls = urls or last_urls
                 self._log_page_diagnostics("collecting recipe links")
             except WebDriverException as e:
                 logger.warning(
@@ -301,8 +324,12 @@ class VangohanScraper:
 
             if attempt < max_retries - 1:
                 wait = 10 * 2**attempt
-                logger.warning(f"No recipe links yet, retrying in {wait}s")
+                logger.warning(f"Recipe links incomplete, retrying in {wait}s")
                 time.sleep(wait)
+
+        if last_urls:
+            logger.warning(f"Falling back to an incomplete list of {len(last_urls)} link(s)")
+            return last_urls
 
         raise RuntimeError("Could not find any recipe links on the top page")
 
