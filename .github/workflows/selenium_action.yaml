@@ -10,7 +10,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
@@ -35,9 +35,9 @@ jobs:
       - name: Running the Python script
         uses: nick-fields/retry@v4
         with:
-          timeout_minutes: 10
+          timeout_minutes: 12
           max_attempts: 3
-          retry_wait_seconds: 30
+          retry_wait_seconds: 60
           command: ./fetch_vangohan.py -o docs -l ja -l en
 
       - name: Commit and Push The Results From Python Selenium Action
