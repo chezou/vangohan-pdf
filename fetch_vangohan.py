@@ -372,12 +372,10 @@ class VangohanScraper:
                 self._wait_for_cloudflare()
 
                 content_path = '//div[contains(@class, "notion-page-content")]'
-                content = WebDriverWait(self.driver, 60).until(
+                WebDriverWait(self.driver, 60).until(
                     EC.presence_of_element_located((By.XPATH, content_path))
                 )
-                return self.driver.execute_script(
-                    "return arguments[0].innerText", content
-                )
+                return self._settled_page_text(content_path)
 
             except TimeoutException as e:
                 logger.warning(f"Timeout fetching {url} on attempt {attempt + 1}: {e}")
@@ -395,6 +393,37 @@ class VangohanScraper:
                 self._reinitialize_driver()
 
         raise RuntimeError(f"Failed to fetch {url} after {max_retries} attempts")
+
+    def _settled_page_text(
+        self, content_path: str, timeout: int = 30, interval: float = 1.5, stable_polls: int = 2
+    ) -> str:
+        """Return the page text once Notion has finished rendering it.
+
+        Notion renders blocks incrementally from the top, so reading innerText as soon as
+        the content container appears drops the bottom of the page (the Japanese section).
+        Scroll to the last block and wait until the text stops changing.
+        """
+        script = """
+            const content = document.evaluate(arguments[0], document, null,
+                XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            if (!content) return null;
+            const last = content.lastElementChild;
+            if (last) last.scrollIntoView({block: "end"});
+            return content.innerText;
+        """
+        text = self.driver.execute_script(script, content_path) or ""
+        unchanged = 0
+        deadline = time.monotonic() + timeout
+        while unchanged < stable_polls and time.monotonic() < deadline:
+            time.sleep(interval)
+            current = self.driver.execute_script(script, content_path) or ""
+            if current == text:
+                unchanged += 1
+            else:
+                text, unchanged = current, 0
+        if unchanged < stable_polls:
+            logger.warning(f"Page text still changing after {timeout}s, using what rendered")
+        return text
 
     def save_recipes(
         self, recipes: List[str], fname: str, image_exist: bool = True, lang: str = "ja"
